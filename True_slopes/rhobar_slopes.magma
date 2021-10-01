@@ -1,0 +1,1497 @@
+Attach("montes.m");
+Attach("+Ideals.m");
+load "montes_helper.magma";
+
+//Needed to prevent extra line breaks from appearing
+SetColumns(0);
+SetAutoColumns(false);
+
+//Basic objects
+//
+//1) mod p Galois representations (rhobars) are stored as a list of elements of the form
+//
+//			< ell, min polynomial of trace of Frob at ell>
+//
+//where ell runs over some collection of primes co-prime to p and the level
+
+//Notation:
+//		omega = mod p cyclotomic character
+
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		rb = a rhobar
+//		p = prime 
+//		t = power of cyclo to twist by
+//
+// Output:
+//		a rhobar, namely: rb otimes omega^t
+//---------------------------------------------------------------------------------------------
+function twist(rb,p,t)
+	v := [];
+	for a in [1..#rb] do
+		ell := rb[a][1];
+		pow := (GF(p)!ell)^(-t);
+		f := rb[a][2];
+		R := Parent(f);
+		y := R.1;
+		f := Evaluate(f,pow * y);
+		f := f / LeadingCoefficient(f);
+		v := v cat [<ell,f>];
+	end for;
+	return v;
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		rb1, rb2 = rhobars
+//		p = prime 
+//
+// Output:
+//		boolean, t: if rb1 = rb2 otimes omega^t, then true, t is returned 
+//					with 0 <= t <= p-2.  Otherwise, false, -1 is returned.
+//---------------------------------------------------------------------------------------------
+function equal_up_to_twist(rb1,rb2,p)
+	bool := false;
+	for a in [0..p-2] do
+		if rb1 eq twist(rb2,p,a) then
+			return true,a;
+		end if;
+	end for;
+
+	return false,-1;
+end function;
+
+//nicely prints data of the form a list of whose members are <rb,slopes>
+procedure print_rhobars_and_slopes_one_prime(data:num_coefs:=6)
+	for c in [1..#data] do
+		print "Rhobar #",c;
+		for i in [1..Min(num_coefs,#data[c][1])] do
+			q := data[c][1][i][1];
+			aq := data[c][1][i][2];
+			if Degree(aq) eq 1 then
+				aq := Roots(aq)[1][1];
+			end if;
+			printf "a_%o=%o; ",q,aq;
+		end for;
+		printf "\n";
+		print "Slopes:",data[c][2];
+		print "---------------------------";
+	end for;
+end procedure;
+
+//displays more cleanly all of the rhobar data coming out of the function "rhobar_slopes"
+procedure print_rhobars_and_slopes(data:num_coefs:=6)
+	for j in [1..#data] do
+		p := data[j][1];
+		print "--------------------------------------------------------";
+		print "p =",p;
+		print "--------------------------------------------------------";
+		print_rhobars_and_slopes_one_prime(data[j][2]:num_coefs:=num_coefs);
+	end for;
+end procedure;
+
+
+//converts the data of the a rhobar into a string (for ease of outputting to a file)
+function rhobar_to_string(rb)
+	S := "";
+	for i in [1..#rb] do
+		q := rb[i][1];
+		aq := rb[i][2];
+		if Degree(aq) eq 1 then
+			aq := Roots(aq)[1][1];
+		end if;
+		S := S cat Sprintf("a_%o=%o; ",q,aq);
+	end for;
+
+	return S;
+end function;
+
+//displays the data of rhobar data more cleanly than just how it's stored
+procedure print_rhobar(rb)
+	printf "[ ";
+	for i in [1..#rb-1] do
+		if Degree(rb[i][2]) gt 1 then
+			printf "(%o,%o), ",rb[i][1],rb[i][2];
+		else
+			printf "(%o,%o), ",rb[i][1],Roots(rb[i][2])[1][1];
+		end if;
+	end for;
+	if Degree(rb[#rb][2]) gt 1 then
+		printf "(%o,%o) ]\n",rb[#rb][1],rb[#rb][2];
+	else
+		printf "(%o,%o) ]\n",rb[#rb][1],Roots(rb[#rb][2])[1][1];
+	end if;
+end procedure;
+
+
+//adds all elements of w to v that are not already in v
+function merge(v,w)
+	for a in w do
+		if Position(v,a) eq 0 then
+			v := v cat [a];
+		end if;
+	end for;
+
+	return v;
+end function;
+
+
+function GetCuspidalModularSymbolsSpace(N,k:neben:=-1,newforms:=false,G1:=false)
+	if Type(neben) ne GrpDrchElt and G1 eq false then
+		M := ModularSymbols(N,k,1);
+	else
+		if Type(neben) eq GrpDrchElt then 
+			G := DirichletGroup(N);
+			M := ModularSymbols(G!neben,k,1);
+		else 
+			M := ModularSymbols(Gamma1(N),k,1);
+		end if;
+	end if;
+	M := CuspidalSubspace(M);
+	if newforms then
+		M:=NewSubspace(M);
+	end if;
+
+	return M;
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		N = tame level
+//		k = weight 
+//		neben (optional) = nebentype character
+//		newforms (optional) = boolean indicating whether or not only newforms are considered
+//		G1 (optional) = boolean indicating whether or not Gamma_1(N) is used instead of Gamma_0(N)
+//
+// Output:
+//		the space of modular forms of level N, weight k, etc.
+//---------------------------------------------------------------------------------------------
+function GetCuspidalModularFormsSpace(N,k:neben:=-1,newforms:=false,G1:=false)
+	if Type(neben) ne GrpDrchElt and G1 eq false then
+		M := ModularForms(N,k);
+	else
+		if Type(neben) eq GrpDrchElt then 
+			G := DirichletGroup(N);
+			M := ModularForms(G!neben,k);
+		else 
+			M := ModularForms(Gamma1(N),k);
+		end if;
+	end if;
+	M := CuspidalSubspace(M);
+	if newforms then
+		M:=NewSubspace(M);
+	end if;
+
+	return M;
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		N = tame level
+//		k = weight 
+//		neben (optional) = nebentype character
+//		newforms (optional) = boolean indicating whether or not only newforms are considered
+//		G1 (optional) = boolean indicating whether or not Gamma_1(N) is used instead of Gamma_0(N)
+//
+// Output:
+//		a list whose elements are of the form <f,M> where f is the q-expansion of a newform 
+//		of level M with M dividing N, wt k, etc
+//---------------------------------------------------------------------------------------------
+// This is the bottle-neck function!!
+//---------------------------------------------------------------------------------------------
+function list_of_eigenforms(N,k:neben:=-1,newforms:=false,G1:=false)
+	M := GetCuspidalModularFormsSpace(N,k:neben:=neben,newforms:=newforms,G1:=G1);
+	num := NumberOfNewformClasses(M);
+
+	//grabs newforms at level N
+	ans := [**];
+	for j in [1..num] do
+		f := Newform(M,j);
+		ans := ans cat [*<f,N>*];
+	end for;
+
+	if not newforms then
+		//runs thru possible oldforms and recursively grabs them at there natural level
+		if Type(neben) ne RngIntElt then
+			core := Conductor(neben);
+			D := N div Conductor(neben);
+		else
+			core := 1;
+			D := N;
+		end if;
+		for NN in Divisors(D) do
+			d := core * NN;
+			if d lt N then
+				ans := ans cat list_of_eigenforms(d,k:neben:=neben,newforms:=false,G1:=G1);
+			end if;
+		end for;
+	end if;
+
+	return ans;
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		f = q-expansion of a modular form
+//		pp = prime (of the Monty sort) over p in the field of Fourier coefficients of f
+//		p_bound (optional) = bound on the number of primes to consider
+//		level = level of space of forms to consider f within
+//
+// Output:
+//		the rhobar corresponding to f and pp.  that is, the list of elements of the form
+//
+//				< ell, min poly of (a_ell(f) mod pp) >
+//
+//		where ell runs over primes less than p_bound and prime to p * level.
+//---------------------------------------------------------------------------------------------
+function reduction_of_modular_form(f,pp:p_bound:=25,level:=-1)
+	if level eq -1 then
+		N := Level(f);
+	else
+		N := level;
+	end if;
+	L := pp`Parent;
+	p := PrimeBelow(pp);
+	aps := [];
+	for q in PrimesUpTo(p_bound) do
+		if Gcd(q,N*p) eq 1 then
+			//bug in montify I think where the ground field is messed up and so 
+			//minimal polynoimals are not computed over F_p
+			//
+			//I've hacked together a possible fix here as it seems that taking the
+			//minimal polynomial over whatever ground field appears, taking a root
+			//of that polynomial and then taking min poly again seems to work
+			if #GroundField(Parent(Reduction(L!Coefficient(f,q),pp))) ne p then
+				print "WARNING: ONE RHOBAR HAS MINIMAL POLYNOMIAL PROBLEMS!!!";
+				//HACKING!!!
+				F := Parent(Reduction(L!Coefficient(f,q),pp));
+				t := Degree(F);
+				FF := GF(p^t);
+				Embed(F,FF);
+				pol := MinimalPolynomial(FF!Reduction(L!Coefficient(f,q),pp));
+//				pol := MinimalPolynomial(Reduction(L!Coefficient(f,q),pp));
+//				print q,pol;
+//				a := Roots(pol)[1][1];
+//				print a;
+//				if #GroundField(Parent(a)) eq p then
+//					print "---looks like we solved the problem";
+//				end if;
+//				pol := MinimalPolynomial(a);
+				aps := aps cat [<q,pol>];				
+			else
+				aps := aps cat [<q,MinimalPolynomial(Reduction(L!Coefficient(f,q),pp))>];
+			end if;
+		end if;
+	end for;
+
+	return aps;
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		f = q-expansion of a modular form
+//		p = prime
+//		p_bound (optional) = bound on the number of primes to consider
+//		distinct (optional) = boolean
+//
+// Output:
+//		returns all of the rhobars attached to f and all of the primes over p in the
+//		field of Fourier coefficients of f.  If distinct is true, then the list of 
+//		distinct rhobar are returned.  Otherwise, rhobars are listed with multiplicity
+//		according to whatever congruences occur.
+//---------------------------------------------------------------------------------------------
+function reductions_of_modular_form(f,p:p_bound:=25,distinct:=true)
+	K := BaseField(f);
+	L := Montify(K);
+	pps := PrimesOver(L,p);
+	reds := [];
+	distinct_reds := [];
+	for pp in pps do
+		fbar := reduction_of_modular_form(f,pp:p_bound:=p_bound);
+		reds := reds cat [fbar];
+		if Position(distinct_reds,fbar) eq 0 then
+			distinct_reds := distinct_reds cat [fbar];
+		end if;
+	end for;
+
+	if distinct then
+		return distinct_reds;
+	else
+		return reds;
+	end if;
+end function;
+
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		A = Hecke simply subspace of some modular symbol space
+//		pp = prime over p (in the Monty sense) in the field of definition of A
+//		eigens (optional) = precomputed system of eigenvalues of A
+//		p_bound (optional) = bound on the number of primes to consider
+//
+// Output:
+//		returns the rhobars attached to A and pp; that is, the list of elements of the form
+//
+//				< ell, min poly of (a_ell(A) mod pp) >
+//
+//		where ell runs over primes less than p_bound and prime to p * level(A).
+//---------------------------------------------------------------------------------------------
+function reduction_of_MS(A,pp:eigens:=-1,p_bound:=25);
+	p := PrimeBelow(pp);
+
+	if Type(eigens) ne SeqEnum then
+		eigens := SystemOfEigenvalues(A,Max(p_bound,p));
+	end if;
+
+	N := Level(A);
+	L := Parent(eigens[1]);
+
+	aps := [];
+	a := 1;
+	for q in PrimesUpTo(p_bound) do
+		if Gcd(q,N*p) eq 1 then
+			if Degree(L) eq 1 then
+				aps := aps cat [<q,MinimalPolynomial(GF(p)!eigens[a])>];
+			else
+				//bug in montify I think where the ground field is messed up and so 
+				//minimal polynoimals are not computed over F_p
+				if #GroundField(Parent(Reduction(eigens[a],pp))) ne p then
+					print "WARNING: ONE RHOBAR HAS MINIMAL POLYNOMIAL PROBLEMS!!!";
+				end if;
+				aps := aps cat [<q,MinimalPolynomial(Reduction(eigens[a],pp))>];
+			end if;
+		end if;
+		a := a + 1;
+	end for;
+
+	return aps;
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		A = Hecke simply subspace of some modular symbol space
+//		pp = prime over p (in the Monty sense) in the field of definition of A
+//		eigens (optional) = precomputed system of eigenvalues of A
+//
+// Output:
+//		if a_p denotes the eigenvalue of the p-th Hecke opeartor on A, then this function returns
+//
+//				ord_pp(a_p) / ord_pp(p) = ord_pp(a_p) / ramification of pp over p.
+//---------------------------------------------------------------------------------------------
+function slope(A,pp:eigens:=-1);
+	p := PrimeBelow(pp);
+
+	if Type(eigens) eq RngIntElt then
+		eigens := SystemOfEigenvalues(A,p);
+		ap := eigens[#eigens];
+	else
+		primes := PrimesUpTo(p);
+		r := #primes;
+		if #eigens le r then
+			ap := eigens[r];
+		else
+			eigens := SystemOfEigenvalues(A,p);
+			ap := eigens[#eigens];
+		end if;
+	end if;
+
+	return valuation(ap,pp)/ram_degree(pp);
+end function;
+
+//gives the multiplicity of a newform of level M occuring at level N
+function old_form_adjustment(N,M)
+	if N mod M ne 0 then
+		return 0;
+	else
+		return #Divisors(N div M);
+	end if;
+end function;
+
+//---------------------------------------------------------------------------------------------
+//Inputs:
+//		N = tame level
+//		k = weight 
+//		neben (optional) = nebentype character
+//		newforms (optional) = boolean indicating whether or not only newforms are considered
+//		G1 (optional) = boolean indicating whether or not Gamma_1(N) is used instead of Gamma_0(N)
+//		MF (optional) = boolean, if true modular forms are used else modular symbols
+//
+//Output:
+//		if MF is true, this function returns a list whose elements are of the form <f,M>
+//		where f is the q-expansion of a newform of level M | N. 
+//
+//		if MF is false, this function returns the list of Hecke simple subspaces of modular symbols
+//		at level N, weight k, etc.
+//---------------------------------------------------------------------------------------------
+
+function eigenform_decomposition(N,k:MF:=true,neben:=-1,newforms:=false,G1:=false)
+	if MF then
+		fs := list_of_eigenforms(N,k:neben:=neben,newforms:=false,G1:=G1);
+	else
+		M := GetCuspidalModularSymbolsSpace(N,k:neben:=neben,newforms:=newforms,G1:=G1);
+		fs := NewformDecomposition(M);
+	end if;
+
+	return fs;
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		ps = a list of primes or a single prime
+//		N = tame level
+//		k = weight 
+//		neben (optional) = nebentype character
+//		newforms (optional) = boolean indicating whether or not only newforms are considered
+//		G1 (optional) = boolean indicating whether or not Gamma_1(N) is used instead of Gamma_0(N)
+//		p_bound (optional) = bound on the number of primes to consider
+//		display (optional) = boolean indicating whether or not to also print data nicely to screen
+//		fs (optional) = precomputed list of eigenforms at this weight and level
+//
+// Output:
+//		for each prime in ps, returns a list of all rhobars at that weight and level 
+//		along with the list of slopes for each rhobar
+//	
+//		The format of this data is a list where each entry is of the form
+//
+//				[* p, data *]
+//
+//		as p varies and the data is a list where each entry is of the form
+//
+//				< rhobar, list of slopes >
+//---------------------------------------------------------------------------------------------
+// THIS SHOULD BE THE MAIN ENGINE FUNCTION 
+//---------------------------------------------------------------------------------------------
+// SERIOUS BUG WHEN p=5 and N=11 RELATED TO MONTIFY AND MINIMAL POLYNOMIALS!!!!
+// -many other examples of this bug
+// -possible fixed now
+//---------------------------------------------------------------------------------------------
+function rhobar_slopes(ps,N,k:MF:=true,neben:=-1,newforms:=true,G1:=false,verbose:=false,p_bound:=25,display:=true,fs:=-1)	
+	//allows for a user to either enter a single prime or a list of primes
+	if Type(ps) ne SeqEnum then
+		ps := [ps];
+	end if;
+
+	//initializes output
+	ans := [[*p,[]*] : p in ps];
+
+	max_prime := Max(Max(ps),p_bound);
+	primes:=PrimesUpTo(max_prime);
+
+	//if eigenforms not precomputed, they are computed now
+	if Type(fs) eq RngIntElt then
+		if verbose then
+			print "forming newform decomposition";
+			time fs := eigenform_decomposition(N,k:MF:=MF,neben:=neben,newforms:=newforms,G1:=G1);
+		else
+			fs := eigenform_decomposition(N,k:MF:=MF,neben:=neben,newforms:=newforms,G1:=G1);
+		end if;		
+	end if;
+
+	for j in [1..#fs] do 
+		//for each eigenform the coefficients are Montified and the oldform count adjustments are made
+		if MF then
+			f := fs[j][1];
+			adjust := old_form_adjustment(N,fs[j][2]);
+			K := BaseField(f);
+			L := Montify(K);
+		else
+			f := fs[j];
+			if verbose then
+				print "Computing system of eigenvalues in Galois orbit number",j,"out of",#fs;
+			end if;
+			if verbose then
+				print "forming system of eigenvalues";
+				time eigens:=SystemOfEigenvalues(f,max_prime);
+			else
+				eigens:=SystemOfEigenvalues(f,max_prime);
+			end if;
+			K := Parent(eigens[1]);
+			L := Montify(K);
+			eigens := [L!eigens[a] : a in [1..#eigens]];
+			adjust := Dimension(fs[j]) / Degree(K); //this correctly counts old forms
+		end if;
+
+		for c in [1..#ps] do
+			//this loop is running through all of the primes in the list ps
+			p := ps[c];
+			pps := PrimesOver(L,p);
+			for pp in pps do
+				//this loop is reducing the eigenforms modulo all primes over p
+				if MF then
+					if verbose then
+						print "reducing a form at p=",p;
+						time rb := reduction_of_modular_form(f,pp:p_bound:=p_bound,level:=N);
+					else
+						rb := reduction_of_modular_form(f,pp:p_bound:=p_bound,level:=N);
+					end if;
+				else
+					rb := reduction_of_MS(f,pp:eigens:=eigens,p_bound:=p_bound);				
+				end if;
+
+				//computes the slope
+				if MF then					
+					s := abs_valuation(Coefficient(f,p),pp);
+				else
+					s := slope(f,pp:eigens:=eigens);
+				end if;
+
+				if s eq 100000 and N mod p eq 0 then
+					s := (k-1)/2;
+				end if;
+
+				//puts this info into the so far gathered data
+				data := ans[c][2];
+				rbs := [*data[a][1] : a in [1..#data]*];
+				b := Position(rbs,rb);
+				if b eq 0 then
+					//this is a new rhobar
+					ans[c][2] := ans[c][2] cat [<rb,[s : j in [1..pp`e*pp`f*adjust]]>];
+				else
+					//this rhobar was already found
+					ans[c][2][b][2] := ans[c][2][b][2] cat [s : j in [1..pp`e*pp`f*adjust]];
+				end if;				
+			end for;
+//			if verbose then
+//				print "---------------------";
+//			end if;
+		end for;
+	end for;
+
+	//sorts the slopes
+	for c in [1..#ps] do
+		for i in [1..#ans[c][2]] do
+			ans[c][2][i][2] := Sort(ans[c][2][i][2]);
+		end for;
+	end for;
+
+	if display then
+		print_rhobars_and_slopes(ans);
+	end if;
+
+	if #ans eq 1 then
+		//strip away the [*p,ans*] wrapping and just return data for the one fixed prime
+		return ans[1][2];
+	else
+		return ans;
+	end if;
+end function;
+
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		ps= a prime
+//		N = tame level
+//		k = weight 
+//		rbs = a list of rhobars (often rb and rb otimes omega^((p-1)/2) )
+//		MF = boolean choosing between modular forms and modular symbols
+//		neben (optional) = nebentype character
+//		newforms (optional) = boolean indicating whether or not only newforms are considered
+//		G1 (optional) = boolean indicating whether or not Gamma_1(N) is used instead of Gamma_0(N)
+//		p_bound (optional) = bound on the number of primes to consider
+//		display (optional) = boolean indicating whether or not to also print data nicely to screen
+//		fs (optional) = precomputed list of eigenforms at this weight and level
+//
+// Output:
+//		returns the rhobar slopes for all of the rhobars in rbs (occuring at the given weight 
+//		and level).  The format of the output is a list where each element in the list has the form
+//
+//			<rb, list of slopes>
+//
+//		as rb varies over rhobars in rbs.
+//
+//		Note: the functions actually first computes all rhobar slopes and just throws away the ones 
+//		not corresponding to rhobars in rbs
+//---------------------------------------------------------------------------------------------
+function slopes_in_fixed_weight_with_fixed_rhobars(p,N,k,rbs:MF:=true,
+		neben:=-1,newforms:=false,G1:=false,p_bound:=25,display:=true,fs:=-1)	
+
+	//if only 1 rhobar is given then it is made into a single element list
+	if Type(rbs[1][1]) eq RngIntElt then
+		rbs := [rbs];
+	end if;
+
+	ans := [];
+	data := rhobar_slopes(p,N,k:MF:=MF,neben:=neben,newforms:=newforms,G1:=G1,p_bound:=p_bound,display:=false,fs:=fs);
+	rbs_found := [data[a][1] :  a in [1..#data]];
+	for i in [1..#rbs] do
+		rb := rbs[i];
+		j := Position(rbs_found,rb);
+		if j gt 0 then
+			ans := ans cat [data[j]];
+		else
+			ans := ans cat [<rb,[]>];
+		end if;
+	end for;
+
+	if display then
+		print_rhobars_and_slopes_one_prime(ans);
+	end if;
+
+	return ans;
+end function;
+
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		rbs = list of rhobars
+//		rb = single rhobar
+//		p = prime
+//
+// Output:
+//		if a twist of rb occurs in rbs, returns a,t where rb = rbs[a] otimes omega^t.
+//		Otherwise returns 0,-1
+//---------------------------------------------------------------------------------------------
+function position_rb_up_to_twist(rbs,rb,p)
+	for i in [1..#rbs] do
+		bool,t := equal_up_to_twist(rb,rbs[i],p);
+		if bool then
+			return i,t;
+		end if;
+	end for;
+
+	//not found
+	return 0,-1;
+end function;
+
+//number of distinct twists of the form rb otimes omega^i as i varies
+function number_of_cyclo_twists(rb,p)
+	v := [twist(rb,p,a) : a in [0..p-2]];
+	return #Set(v);
+end function;
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		N = tame level
+//		p = prime
+//		neben (optional) = nebentype character
+//
+// Output:
+//		returns a string which has the form:
+//
+//		"../DATA_all_rhobars/N=*/p=*/" where * is filled in by the values of N and p
+//
+//    				or
+//
+//		"../DATA_all_rhobars/N=*.Conductor=*.Order=*/p=*/" 
+//
+//		where * is filled in by the values of N,the conductor and order of neben, and p
+//---------------------------------------------------------------------------------------------
+function form_filename(N,p:neben:=-1)
+	filename := "../DATA_all_rhobars/N=" cat IntegerToString(N);
+	if Type(neben) eq GrpDrchElt then
+		filename := filename cat ".Conductor=" cat IntegerToString(Conductor(neben)) cat ".Order=" cat IntegerToString(Order(neben));
+	end if;
+	filename := filename cat "/p=" cat IntegerToString(p) cat "/";
+
+	return filename;
+end function;
+
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		p = a prime
+//		N = tame level
+//		neben (optional) = nebentype character
+//		p_bound (optional) = bound on the number of primes to consider
+//		all_fs (optional) = precomputed list of list of eigenforms whose elements are of the form
+//
+//								[k, list of q-expansion eigenforms of weight k]
+//
+// Output:
+//		finds all rhobars in the fixed tame level and makes a file for each rhobar (up to twists)
+//		in the directory (which should already exist!)
+//
+//  		../DATA_all_rhobars/N=*/p=*/ or "../DATA_all_rhobars/N=*.Conductor=*.Order=*/p=*/" 
+//
+//		and the file name has the form rhobar.*.*.*
+//
+//		where the *'s indicate if it is Eisenstein, E2, its Serre weight, if its irregular, etc.'
+//---------------------------------------------------------------------------------------------
+function prepare_rhobar_files(p,N:neben:=-1,p_bound:=25,all_fs:=-1)
+	//if we are using odd weights, we will eventually need the weight p+2 data
+	//to determine regularity for Serre weight p
+
+	if Type(neben) ne RngIntElt then
+		if Type(all_fs) ne RngIntElt then
+			ks := [all_fs[a][1] : a in [1..#all_fs]];
+			j := Position(ks,p+2);
+			if j gt 0 then
+				fsk := all_fs[j][2];
+			else
+				fsk := -1;
+			end if;
+		else
+			fsk := -1;
+		end if;	
+		p2_data := rhobar_slopes(p,N,p+2:neben:=neben,fs:=fsk,p_bound:=p_bound,display:=false);
+		p2_rbs := [p2_data[a][1] : a in [1..#p2_data]];
+	end if;
+
+	filenames := [];
+	rbs_up_to_twist := [];
+
+	//find eisenstein series --- only works without neben or with prime level neben
+	print "---finding Eisenstein series";
+ 	if Type(neben) ne GrpDrchElt then 
+ 		if p gt 2 then
+	 		max := (p+1) div 2;
+	 	else
+	 		max := 2;
+	 	end if;
+	 	for k in [2..max by 2] do
+	 		rb := [<q,MinimalPolynomial(GF(p)!(q^(k-1)+1))> : q in [1..p_bound] | IsPrime(q) and Gcd(q,N*p) eq 1];
+	 		note := "";
+			note := note cat Sprintf("Working with p=%o, N=%o and rhobar=%o\n",p,N,rhobar_to_string(rb));
+			note := note cat Sprintf("Serre weight=%o\n",k);
+	 		if k ne 2 then
+				filename := form_filename(N,p:neben:=neben) cat "rhobar." 
+				cat "eis.k=" cat IntegerToString(k);
+				note := note cat Sprintf("Eisenstein: 1+ell^%o\n",k-1);
+				if p ne 2 then
+					note := note cat Sprintf("Regular\n"); 
+				else
+					note := note cat Sprintf("I'm confused about regularity when p=2\n"); 
+				end if;
+		 	else
+				filename := form_filename(N,p:neben:=neben) cat "rhobar." 
+				cat "E2.k=" cat IntegerToString(k);
+				note := note cat Sprintf("E2\n");
+				if p ne 2 then
+					note := note cat Sprintf("Regular\n"); 
+				else
+					note := note cat Sprintf("I'm confused about regularity when p=2\n"); 
+				end if;
+		 	end if;
+		 	//all twists of rb are stored (to save lots of time later)
+		 	rb_twists := [twist(rb,p,t) : t in [0..p-2]];
+		 	filenames := filenames cat [<k,rb_twists,filename,note>];
+	 	end for;
+	 else
+	 	if neben(-1) eq 1 then
+	 		k1 := 2;
+	 		k2 := p-1;
+		 	if p eq 2 then
+		 		k2 := 2;
+		 	end if;
+	 	else
+	 		k1 := 1;
+	 		k2 := p-2;
+		 	if p eq 2 then
+		 		k2 := 1;
+		 	end if;
+	 	end if;
+
+	 	for k in [k1..k2 by 2] do
+	 		rb := [<q,MinimalPolynomial(GF(p)!(neben(q) * q^(k-1)+1))> : q in [1..p_bound] | IsPrime(q) and Gcd(q,N*p) eq 1];
+	 		note := "";
+			note := note cat Sprintf("Working with p=%o, N=%o, neben=%o and rhobar=%o\n",p,N,neben,rhobar_to_string(rb));
+			note := note cat Sprintf("Serre weight=%o\n",k);
+			filename := form_filename(N,p:neben:=neben) cat "rhobar." 
+			cat "eis.k=" cat IntegerToString(k);
+			note := note cat Sprintf("Eisenstein: 1 + chi(ell)*ell^%o where chi is %m\n",k-1,neben);
+			if p eq 2 then
+				note := note cat Sprintf("I'm confused about regularity when p=2\n"); 
+			else	
+				if k ne 1 then
+					note := note cat Sprintf("Regular\n");
+				else
+					i := Position(p2_rbs,twist(rb,p,1));
+					if Set(p2_data[i][2]) eq {1} then
+						note := note cat Sprintf("Regular\n");
+					else
+						note := note cat Sprintf("Irregular, reducible\n");
+						filename := filename cat ".red_irreg";
+					end if;
+				end if;
+			 end if;
+		 	rb_twists := [twist(rb,p,t) : t in [0..p-2]];
+		 	filenames := filenames cat [<k,rb_twists,filename,note>];
+	 	end for;
+	end if;
+	num_eis := #filenames;
+
+	//cuspform time!  
+	//this e just keeps track of the parity of the weight
+	e := 0;
+	if Type(neben) ne RngIntElt then
+		if neben(-1) eq -1 then
+			e := 1;
+		end if;
+	end if;
+
+	//run through weight 2 to p+1
+	if p gt 2 then 
+		max := p+1;
+	else
+		max := 4;
+	end if;
+	for k in [2+e..max by 2] do
+		print "---finding cuspform reductions in weight",k;
+		count := 0;
+
+		//grabs precomputed data if possible
+		if Type(all_fs) ne RngIntElt then
+			ks := [all_fs[a][1] : a in [1..#all_fs]];
+			j := Position(ks,k);
+			if j gt 0 then
+				fsk := all_fs[j][2];
+			else
+				fsk := -1;
+			end if;
+		else
+			fsk := -1;
+		end if;
+
+		//computes the slopes in weight k
+		data := rhobar_slopes(p,N,k:neben:=neben,fs:=fsk,p_bound:=p_bound,display:=false);
+		for j in [1..#data] do
+			//print "sorting ",j,"-th rhobar out of",#data;
+			rb := data[j][1];
+		 	note := "";
+			slopes := data[j][2];
+			//check to see if this is a new rhobar
+			found := false;
+			for i in [1..#filenames] do 
+				a := Position(filenames[i][2],rb);
+				if a gt 0 then
+				//rhobar already occurred up to a twist
+					ki := filenames[i][1];
+					if (ki eq p+1-k) and (i gt num_eis) then
+						//print "By the way",rhobar_to_string(rb),"is split";
+						filenames[i][3] := filenames[i][3] cat ".split";
+					end if;
+					found := true;
+					break;
+				end if;
+			end for;
+			if not found then
+				//this is a genuinely new rhobar
+				count := count + 1;
+				filename := form_filename(N,p:neben:=neben) cat "rhobar." cat "k=" cat IntegerToString(k) cat "." cat IntegerToString(count);
+				if Type(neben) eq RngIntElt then
+					note := note cat Sprintf("Working with p=%o, N=%o and rhobar=%o\n",p,N,rhobar_to_string(rb));
+				else
+					note := note cat Sprintf("Working with p=%o, N=%o, neben=%o and rhobar=%o\n",p,N,neben,rhobar_to_string(rb));
+				end if;
+				note := note cat Sprintf("Serre weight=%o\n",k);
+
+				//determines regularity
+				if p eq 2 then
+					note := note cat Sprintf("I'm confused about regularity when p=2\n");
+				else
+					if k ne p then
+						if Max(slopes) eq 0 then
+							note := note cat Sprintf("Regular\n");
+						else
+							note := note cat Sprintf("Irregular\n");
+							filename := filename cat ".irreg";
+						end if;
+					else
+						if Max(slopes) gt 0 then
+							note := note cat Sprintf("Irregular\n");
+							filename := filename cat ".irreg";
+						else							
+							i := Position(p2_rbs,twist(rb,p,1));
+							if i eq 0 then
+								if p ne 3 then //p needs to be 3 for rhobar to occur in weight p
+												//but not in weight p+2!!!
+									print Integers()!(1/2);
+								else
+									note := note cat Sprintf("We don't know if this is regular or not\n");		
+									filename := filename cat ".??";
+								end if;
+							else
+								if Set(p2_data[i][2]) eq {1} then
+									note := note cat Sprintf("Regular\n");
+								else
+									note := note cat Sprintf("Irregular, reducible\n");
+									filename := filename cat ".red_irreg";
+								end if;
+							end if;
+						end if;
+					end if;
+				end if;
+
+				//exceptional case where you can be split
+				if (p+1-k eq k) and twist(rb,p,(p-1) div 2) eq rb then
+					//print "By the way",rhobar_to_string(rb),"is split";
+					filename := filename cat ".split";
+				end if;
+
+			 	rb_twists := [twist(rb,p,t) : t in [0..p-2]];
+				//check if stable under any cyclo twist
+				num := #rb_twists;
+				if num lt p-1 then
+					note := note cat Sprintf("Only %o distinct cyclo twists\n",num);
+				end if;
+
+				filenames := filenames cat [<k,rb_twists,filename,note>];				
+			end if;
+		end for;
+	end for;
+
+	for i in [1..#filenames] do
+		Write(filenames[i][3],filenames[i][4]);
+	end for;
+
+	return filenames;
+end function;
+
+
+//---------------------------------------------------------------------------------------------
+// Inputs:
+//		ps = a list of primes or a single prime
+//		N = tame level
+//		kmix = weight
+//		kmax = weight
+//		neben (optional) = nebentype character
+//		p_bound (optional) = bound on the number of primes to consider
+//		all_fs (optional) = precomputed list of list of eigenforms whose elements are of the form
+//
+//								[k, list of q-expansion eigenforms of weight k]
+//
+// Output:
+//		finds all rhobars in the fixed tame level and makes a file for each rhobar (up to twists)
+//		in the directory (which should already exist!)
+//
+//  		../DATA_all_rhobars/N=*/p=*/ or "../DATA_all_rhobars/N=*.Conductor=*.Order=*/p=*/" 
+//
+//		and the file name has the form rhobar.*.*.*
+//
+//		where the *'s indicate if it is Eisenstein, E2, its Serre weight, if its irregular, etc.'
+//---------------------------------------------------------------------------------------------
+function collect_all_slopes(ps,N,kmin,kmax:neben:=-1,p_bound:=25,all_fs:=-1)
+	//user can enter a single prime or a list of primes
+	if Type(ps) eq RngIntElt then
+		ps := [ps];
+	end if;
+
+	max_prime := Max(ps);
+
+	//range of weights to collect all rhobars
+	if kmin mod 2 eq 0 then
+		k1 := 2;
+		k2 := max_prime+1;
+	else
+		k1 := 3;
+		k2 := max_prime+2;
+	end if;
+
+	//precomputing eigenforms needed to find rhobars
+	if Type(all_fs) eq RngIntElt then
+		all_fs := [];
+		for k in [k1..k2 by 2] do
+			print "Precomputing in weight",k;
+			fs := eigenform_decomposition(N,k:neben:=neben);
+			all_fs := all_fs cat [<k,fs>];
+		end for;
+	end if;
+
+	files := [**];
+	for p in ps do
+		if IsPrime(p) then
+			print "Finding rhobars for p=",p;
+			files := files cat [*<p,prepare_rhobar_files(p,N:neben:=neben,p_bound:=p_bound,all_fs:=all_fs)>*];
+		end if;
+	end for;
+	print "...done";
+
+	print "Now computing weights between",kmin,"and",kmax;
+	for k in [kmin..kmax by 2] do
+		//running through all of the weights
+		print "--> k =",k;
+		ks := [all_fs[a][1] : a in [1..#all_fs]];
+		j := Position(ks,k);
+		//checking to see if eigenforms are precomputed
+		if j gt 0 then
+			all_data := rhobar_slopes(ps,N,k:neben:=neben,p_bound:=p_bound,fs:=all_fs[j][2],display:=false);
+		else
+			all_data := rhobar_slopes(ps,N,k:neben:=neben,p_bound:=p_bound,display:=false);
+		end if;
+		//this is just dumb adjustment to make the 1 prime and list of prime case both work
+		if #ps eq 1 then
+			all_data := [<ps[1],all_data>];
+		end if;
+		print "------> have the rhobar slopes computed.  now sorting and writing";
+
+		//now we run through the rhobar slope data for each prime
+		for a in [1..#all_data] do
+			//this runs through each prime
+			p := all_data[a][1];
+			print "------------> p =",p;
+			data := all_data[a][2];
+			for b in [1..#data] do
+				//this runs through <rb,slopes>
+				rb := data[b][1];
+				slopes := data[b][2];
+				filename_data := files[a][2];
+				rbs := [filename_data[c][2] : c in [1..#filename_data]];
+				filenames := [filename_data[c][3] : c in [1..#filename_data]];
+				found := false;
+				for j in [1..#rbs] do
+					t := Position(rbs[j],rb);
+					t := t - 1;
+					if t ge 0 then
+						line := Sprintf("(%o,%o): %o,",k,t,slopes);
+						print "******** adding",line,"to",filenames[j];
+						Write(filenames[j],line);
+						found := true;
+						break;
+					end if;
+				end for;
+				if not found then
+					//HACKING!
+					IntegerRing()!(1/2);
+				end if;
+			end for;
+		end for;
+	end for;
+
+	return 0;
+end function;
+
+//------------------------------------------------------------
+//OLDER CODE BELOW HERE
+//------------------------------------------------------------
+
+//twist a rhobar by chi
+function twist_by_chi(rb,chi)
+	v := [];
+	for a in [1..#rb] do
+		ell := rb[a][1];
+		f := rb[a][2];
+		R := Parent(f);
+		y := R.1;
+		f := Evaluate(f,chi(ell)*y);
+		f := f / LeadingCoefficient(f);
+		v := v cat [[*ell,f*]];
+	end for;
+	return v;
+end function;		
+
+
+procedure pretty_print_list(v)
+	if #v eq 0 then
+		printf "[]";
+	else
+		printf "[";
+		if #v ne 0 then
+			for a in [1..#v-1] do
+				printf "%o, ",v[a];
+			end for;
+			printf "%o]",v[#v];
+		end if;
+	end if;
+end procedure;
+
+function add_rb(rb_data,rb,f,k,pp)
+	print "=====================================";
+	print "trying to add",rb,"to",rb_data;
+	print "k=",k;
+	p := PrimeBelow(pp);
+	//first see if rb is there (up to twist)
+	found := false;
+	a := 1;
+	while (not found) and (a le #rb_data) do
+		bool,t := equal_up_to_twist(rb,rb_data[a][1],p);
+		if bool then
+			print "FOUND! -- (a,t)=",<a,t>;
+			print rb;
+			print rb_data[a];
+			//it's there...now we need to add the multiplicity and slope of
+			//rb \otimes omega^t.  We need to first check if this data needs
+			//to be added newly or added to existing data
+			found := true;						
+			wt_tw_found := false;
+			b := 1;
+			while (not wt_tw_found) and (b le #rb_data[a][2]) do
+				print "b=",b;
+				if rb_data[a][2][b][1] eq [k,t] then
+					//this twist of rhobar is already recorded with data
+					//increasing multiplicities and added on slopes 
+					wt_tw_found := true;
+					rb_data[a][2][b][2] := rb_data[a][2][b][2] + ram_degree(pp);
+					if #rb_data[a][3] gt 0 then
+						rb_data[a][3][b] := rb_data[a][3][b] cat [abs_valuation(Coefficient(f,p),pp) : a in [1..ram_degree(pp)]];
+					else
+						//possibly, for an eisenstein rhobar, the rhobar is recorded but
+						//with 0 multiplicity so a little care needs to be taken here
+						rb_data[a][3] := [[abs_valuation(Coefficient(f,p),pp) : a in [1..ram_degree(pp)]]];
+					end if;
+				end if;
+				b := b + 1;
+			end while;
+			if not wt_tw_found then
+				//this is a new twist of rhobar so we just insert the new data at the end
+				Append(~rb_data[a][2],<[k,t],ram_degree(pp)>);
+				rb_data[a][3] := rb_data[a][3] cat [[abs_valuation(Coefficient(f,p),pp) : a in [1..ram_degree(pp)]]];
+			end if;
+		end if;
+		a := a + 1;
+	end while;
+	if not found then
+		//brand new rhobar...adding it on
+		rb_data := rb_data cat [[*rb,[*<[k,0],ram_degree(pp)>*],[[abs_valuation(Coefficient(f,p),pp) : a in [1..ram_degree(pp)]]]*]];
+	end if;
+
+	return rb_data;
+end function;
+
+
+//need to think about newforms here --- does it work to only check low weight?
+function find_all_rhobars(p,N:neben:=-1,p_bound:=25,G1:=false)
+	rb_data := [];
+	if Type(neben) eq GrpDrchElt then 
+		if neben(-1) eq 1 then
+			k_min := 2;
+		else
+			k_min := 3;
+		end if;
+	else
+		k_min := 2;
+ 	end if;
+
+//EISENSTEIN SERIES -- need to include general characters: only works here for prime level and quadratic
+ 	if Type(neben) ne GrpDrchElt then 
+	 	for k in [2..(p+1) div 2 by 2] do
+	 		rb := [<q,MinimalPolynomial(GF(p)!(q^(k-1)+1))> : q in [1..p_bound] | IsPrime(q) and Gcd(q,N*p) eq 1];
+	 		if k ne 2 then
+		 		rb_data := rb_data cat [[*rb,[*<[k,0],0>*],[[]],"Eis"*]];
+		 	else
+		 		rb_data := rb_data cat [[*rb,[*<[k,0],0>*],[[]],"E2"*]];
+		 	end if;
+	 	end for;
+	 else
+	 	if neben(-1) eq 1 then
+	 		k1 := 2;
+	 		k2 := p-1;
+	 	else
+	 		k1 := 3;
+	 		k2 := p;
+	 	end if;
+	 	for k in [k1..k2 by 2] do
+	 		rb := [<q,MinimalPolynomial(GF(p)!(neben(q) * q^(k-1)+1))> : q in [1..p_bound] | IsPrime(q) and Gcd(q,N*p) eq 1];
+	 		if k ne 2 then
+		 		rb_data := rb_data cat [[*rb,[*<[k,0],0>*],[[]],"Eis"*]];
+		 	end if;
+	 	end for;
+	 end if;
+
+
+	for k in [k_min..p+2 by 2] do
+		print k,"-------------------------";	
+		found := false;
+		c := 1;
+		v := list_of_eigenforms(N,k:neben:=neben,newforms:=false,G1:=G1);
+		for g in v do
+			f := g[1];
+			K := BaseField(f);
+			L := Montify(K);
+			pps := PrimesOver(L,p);
+			for pp in pps do
+				rb := reduction_of_modular_form(f,pp:p_bound:=p_bound);
+				rb_data := add_rb(rb_data,rb,f,k,pp);
+			end for;
+		end for;
+	end for;
+
+	for a in [1..#rb_data] do
+		rb := rb_data[a];
+		if #rb lt 4 then //not yet labeled Eisenstein
+			ks := [rb[2][s][1][1] : s in [1..#rb[2]]];
+			v := rb[3];
+			if Max(ks) eq p+2 then
+				if Max([Max(v[s]) : s in [1..#v-1]]) gt 0 then
+					Append(~rb_data[a],"Irred");
+				else
+					if Set(v[#v]) eq {1} then
+						Append(~rb_data[a],"regular Serre weight p");
+					else
+						Append(~rb_data[a],"irregular reducible");
+					end if;
+				end if;
+			else
+				if Max([Max(v[s]) : s in [1..#v]]) gt 0 then
+					Append(~rb_data[a],"Irred");
+				else
+					if rb[2][1][1][1] eq p+1 then
+						Append(~rb_data[a],"Non-split tres");	
+					else
+						k1 := rb[2][1][1][1];
+						if (#rb[2] gt 1) and (rb[2][2][1][1] eq p+1-k1) then
+							Append(~rb_data[a],"split");
+						else
+							Append(~rb_data[a],"Non-split generic");	
+						end if;
+					end if;
+				end if;
+			end if;
+		end if;
+	end for;
+
+	return rb_data;
+end function;
+
+
+
+function collect_rhobar_slopes(p,N,kmin,kmax,rb
+				:neben:=-1,newforms:=true,G1:=false,verbose:=false,filename:=-1,ell:=-1)
+	ans := [**];
+	printf "Working with p=%o, N=%o and rhobar=",p,N;
+	print_rhobar(rb);
+	if Type(filename) eq MonStgElt then
+		SetOutputFile(filename);
+		printf("Working with p=%o, N=%o and rhobar=",p,N);
+		print_rhobar(rb);
+		UnsetOutputFile();
+	end if;
+	if p ne 2 then
+		delta := p-1;
+	else
+		delta := 2;
+	end if;
+	for k in [kmin..kmax by delta] do
+		s := slopes_in_fixed_weight_with_fixed_rhobars(p,N,k,rb
+				:neben:=neben,newforms:=newforms,G1:=G1,verbose:=verbose,ell:=ell);
+		printf "%o ",k;
+		pretty_print_list(s);
+		printf "\n";
+		if Type(filename) eq MonStgElt then
+			SetOutputFile(filename);
+			printf "%o ",k;
+			print s;
+			UnsetOutputFile();
+		end if;
+		ans := ans cat [*[*k,s*]*];
+	end for;
+	return ans;
+end function;
+
+
+//runs through weights k between kmin and kmax and returns slopes of the two twists of rhobar 
+//which occur in weight k
+//
+//the format of the output is close to a python dictionary
+function collect_rhobar_slopes_from_all_twists(p,N,kmin,kmax,rb,krbar
+	:neben:=-1,newforms:=true,G1:=false,verbose:=false,ell:=-1)
+	ans := [**];
+	printf "Working with p=%o, N=%o and rhobar=",p,N;
+	print_rhobar(rb);
+	printf "...and its cyclotomic twists\n";
+	for k in [kmin..kmax by 2] do
+		t := ((k - krbar) div 2) mod (p-1);
+		rbs := [twist(rb,p,t),twist(rb,p,((p-1) div 2) + t)];
+		slopes := slopes_in_fixed_weight_with_fixed_rhobars(p,N,k,rbs
+				:neben:=neben,newforms:=newforms,G1:=G1,verbose:=verbose,ell:=ell);
+		for i in [1,2] do
+			printf "(%o,%o) : ",k,(t+(i-1)*((p-1) div 2)) mod (p-1);
+			pretty_print_list(slopes[i]);
+			printf ",\n";
+			ans := ans cat [*[*k,t,slopes*]*];
+		end for;
+	end for;
+	return ans;
+end function;
+
+
+
+// //rb is a level N^2 rhobar
+// //rbs are a list of rhobars from level N 
+// //only checking twists by chi_N
+// function is_twist_from_level_N(rb,rbs)
+// 	twist := false;
+// 	a := 0;
+// 	while a lt #rbs and not twist do
+// 		a := a + 1;
+// 		twist := rb eq twist_by_chi(rbs[a],chi);
+// 	end while;
+// 	return twist;
+// end function;
+
+// //rb is a level N^2 rhobar
+// //rbs are a list of rhobars from level N 
+// function is_in_level_N(rb,rbs)
+// 	return Position(rbs,rb) gt 0;
+// end function;
+
+
+// //data1 is rhobar data from level N and data2 is rhobar data from level N^2
+// //prints out all rb2's with multiplicities indicating if they are congruent to something of level N
+// procedure classify_level_Nsquared(data1,data2:num_coefs:=6)
+// 	for c in [1..#data2[1]] do
+// 		print "Rhobar #",c;
+// 		for i in [1..Min(num_coefs,#data2[1][c])] do
+// 			rb := data2[1][c];
+// 			q := rb[i][1];
+// 			aq := rb[i][2];
+// 			if Degree(aq) eq 1 then
+// 				aq := Roots(aq)[1][1];
+// 			end if;
+// 			printf "a_%o=%o; ",q,aq;
+// 		end for;
+// 		printf "\n";
+// 		print "Multiplicity:",data2[2][c];
+// 		print "Slopes:",data2[3][c];
+// 		print "twist of level N:",is_twist_from_level_N(rb,data1[1]) or is_in_level_N(rb,data1[1]);
+// 		print "---------------------------";
+// 	end for;
+// end procedure;
+
+
+
+function all_rhobar_slopes_old(p,N,kmin,kmax:neben:=-1,newforms:=false,G1:=false,verbose:=false,p_bound:=35)	
+	//code doesn't correct compute slopes of p-old forms!!
+	assert N mod p ne 0;
+	if Type(neben) eq GrpDrchElt then
+		assert Modulus(neben) mod p ne 0;
+	end if;
+
+//rb := [rbt[i] : i in [1..#rbt] | Gcd(rbt[i][1],N*p) eq 1];
+//		rb_primes:=[rb[a][1] : a in [1..#rb]];
+//			print rb_primes;
+
+
+	filename := "../DATA_all_rhobars/p=" cat IntegerToString(p) cat ".N=" cat IntegerToString(N);
+	if Type(neben) eq GrpDrchElt then
+		filename := filename cat ".Conductor=" cat IntegerToString(Conductor(neben)) cat ".Order=" cat IntegerToString(Order(neben));
+	end if;
+	filename := filename cat "/";
+	rbs := [];
+	filenames := [];
+	slopes := [];
+	for k in [kmin..kmax by 2] do
+		if verbose then
+			print "-------------------------------------------------";
+			print "Newform decomposition in weight",k;	
+		end if;
+		primes:=PrimesUpTo(1000);
+		if Type(neben) ne GrpDrchElt and G1 eq false then
+			M := ModularSymbols(N,k,1);
+		else
+			if Type(neben) eq GrpDrchElt then 
+				M := ModularSymbols(neben,k,1);
+			else 
+				M := ModularSymbols(Gamma1(N),k,1);
+			end if;
+		end if;
+		M := CuspidalSubspace(M);
+		if newforms then
+			M:=NewSubspace(M);
+		end if;
+		As:=NewformDecomposition(M);
+		if verbose then
+			print "Dimension of space is",Dimension(M);
+		end if;
+	//	print "There are ",#As,"Galois conjucacy classes of forms";
+		for j in [1..#As] do
+			ap_computed:=false;
+			if verbose then
+				print "Computing system of eigenvalues in Galois orbit of number",j;
+			end if;
+			if verbose then
+				time eigens:=SystemOfEigenvalues(As[j],p_bound);
+			else
+				eigens:=SystemOfEigenvalues(As[j],p_bound);
+			end if;
+
+			if (p lt p_bound) then
+				pos:=Position(primes,p);
+				ap:=eigens[pos];
+			else
+				eigens:=SystemOfEigenvalues(As[j],p);
+				ap:=eigens[#eigens];
+			end if;
+
+			K:=Parent(eigens[1]);
+			//Crazy work-around here needed because Montes package requires number fields
+			//to be defined by monic integral polynomials, but magma does not realize
+			//that K has this property.  So we force the issue.
+			f:=DefiningPolynomial(K);
+			Zx:=PolynomialRing(Integers());
+			L:=NumberField(Zx!f);
+			Embed(K,L,L.1);
+			eigens := [L!eigens[a] : a in [1..#eigens]];
+			if Degree(K) gt 1 then
+				//print "Computing primes over",p;
+				Montes(L,p);
+				pps:=L`PrimeIdeals[p];
+				//print "done";
+				r:=#pps;
+			else
+				pps:=[p];
+				r:=1;
+			end if;
+			adjust:=Dimension(As[j]) / Degree(K); //this should be dealing with old forms ?????
+			if verbose then
+				print "There are",r,"primes over",p;
+			end if;
+			for i in [1..#pps] do
+				if verbose then
+					print "---------------------";
+					print "Working with prime",i;
+				end if;
+				if Degree(K) gt 1 then
+					pp:=pps[i];
+					e:=pp`e;
+					f:=pp`f;
+				else
+					pp:=p;
+					e:=1;
+					f:=1;	
+				end if;
+				if Degree(K) eq 1 then
+					aps:=[[*primes[a],MinimalPolynomial(GF(p)!(eigens[a]))*] : a in [1..#eigens] | Gcd(primes[a],p*N) eq 1];
+				else
+					aps:=[[*primes[a],MinimalPolynomial(Reduction(eigens[a],pp),GF(p))*] : a in [1..#eigens] | Gcd(primes[a],p*N) eq 1];
+				end if;
+				//print "Computing valuation";
+				if Degree(K) gt 1 then						
+					v:=PValuation(L!ap,pp)/e;
+				else
+					v:=Valuation(ap,p);
+				end if;
+				//print "...done",v,[e,f,adjust];
+				printf "%o\n",rhobar_to_string(aps);
+				print k,":",[v : i in [1..e*f*adjust]];
+				print "";
+
+				c := Index(rbs,aps);
+				if c eq 0 then
+					c := #filenames + 1;
+					filenames := filenames cat [filename cat "rhobar" cat IntegerToString(c)];
+					Write(filenames[c],"p=" cat IntegerToString(p));
+					Write(filenames[c],"N=" cat IntegerToString(N));					
+					if Type(neben) eq GrpDrchElt then
+						Write(filenames[c],neben);					
+					end if;
+					Write(filenames[c],rhobar_to_string(aps));
+					slopes := slopes cat [[v : m in [1..e*f*adjust]]];
+					rbs := rbs cat [aps];
+				else	
+					slopes[c] := slopes[c] cat [v : m in [1..e*f*adjust]];
+				end if;
+			end for;
+		end for;
+
+		for i in [1..#rbs] do
+			slopes[i] := Sort(slopes[i]);
+			S := Sprintf("%o : %o,",k,slopes[i]);
+			if #slopes[i] gt 0 then
+				Write(filenames[i],S);
+			end if;
+			slopes[i] := [];
+		end for;
+
+		if verbose then
+			print "----------------";
+		end if;
+	end for;
+
+	return "Done";
+end function;
+
+
+
+
+
