@@ -13,14 +13,16 @@ class rbdata(SageObject):
 		Parameters:
 			p: prime
 			 
-			krbar: integer k in [2,p] such that det(rbar)|_I = w^(k-1). This is *no longer* not necessarily the "Serre" weight. It is the parameter b from above.
+			krbar: integer k in [2,p] such that det(rbar)|_I = w^(k-1). This is *not* the "Serre" weight.
 			
 			red_type: 	Different options are...
+								(i) Global conditions
 								- "Eis" for Eisenstein.
 								- "E2" is for the Eisenstein series E2.
+								(ii) Local conditions
 								- "Irred" for locally irreducible.
-								- "Non-split generic" for locally reducible, non-split on inertia **and** the peu ramifee cases.			
-								- "Non-split tres" for locally reducible and non-split but a tres ramifee extension.
+								- "Non-split generic" for locally reducible, non-split on inertia. This case **includes** any peu ramifee classes.
+								- "Tres ramifee" for locally reducible and non-split but a tres ramifee extension.
 								- "Split" for locally split on inertia
 								
 			eis: Number. (Default 0.) Represents the generic multiplicity of rbar in the Eisenstein space. Thus eis = dim E_{krbar}(rbar) if krbar > 2 and otherwise it equals dim E_{p+1}(rbar) if krbar = 2.			
@@ -44,7 +46,7 @@ class rbdata(SageObject):
 		
 		self.det = (krbar - 2) % (p-1) + 1 ## This is the parameter "b" in the setup
 		
-		if self.red_type == "Non-split tres" or self.red_type == "E2":
+		if self.red_type == "Tres ramifee" or self.red_type == "E2":
 			if self.det != 1:
 				warnings.warn("Warning: Your reduction type is not compatible with the determinant parameter. I am changing your determinant to be 1.")
 				self.krbar = 2
@@ -82,6 +84,11 @@ class rbdata(SageObject):
 			if self.base == {}:
 				warnings.warn("Warning: You didn't specify any base dimensions, which are required for Eisenstein series. I am going to set them all to be 0.")
 		else:
+			## Warn the user if their eisenstein multiplicity is positive			
+			if self.eis > 0:
+				warnings.warn("You have a positive Eisenstein multiplicity, yet you didn't choose an Eisenstein reduction type. I'm resetting eis = 0.")
+				self.eis = 0
+			
 			## Initialize the base in the non-Eisenstein case (so Serre's conjecture applies)			
 			init_weights = self.serre_weights()
 			
@@ -136,8 +143,8 @@ class rbdata(SageObject):
 		
 		
 	## TO-DO: Edit this.
-	def __repr__(self):
-		return "Mod "+str(self.p)+" repn with Serre weight "+str(self.krbar)+", red_type = " + str(self.red_type)
+	def __repr__(self):	
+		return "Mod "+str(self.p)+" repn with red_type = " + str(self.red_type) + ". The determinant is cyclo**" + str(self.det) + ". The Serre weights are " + str(self.serre_weights()) 
 		
 		
 	def serre_weights(self):
@@ -149,8 +156,10 @@ class rbdata(SageObject):
 			In the case that type = "Eis", it returns the empty list.
 			
 			The convention for the ordering of the list is as follows. 
-				1. There are at most two twists possible. We list those without a twist first and those with a twist second.
+				1. Because of the determinant restriction, the answer is either (*,0) or (*,t) for a unique t != 0. We list those (*,0) first, and (*,t) second.
 				2. Within a constant twist, the modular weight is *increasing*. (This is to be consisten with Bergdall-Pollack, Corollary and legacy code for "mult" above. Slightly different than [BDJ])
+				
+			Note also that our pairs (k,t) are what [BDJ] writes (t,k).
 		"""
 		p = self.p
 		red_type = self.red_type
@@ -167,13 +176,13 @@ class rbdata(SageObject):
 	
 		if self.red_type == "Irred":
 			BDJ_list = [(b,0), (p+1-b,b-1)]
+		elif red_type == "Tres ramifee":
+			BDJ_list = [(p,0)] # Case 5
 		elif self.red_type == "Non-split generic":
 			if 1 < b and b <= p-1 and p > 2:
 				BDJ_list = [(b,0)]   # Case 1,4
 			else:
 				BDJ_list = [(1,0), (p,0)] # Final case
-		elif red_type == "Non-split tres":
-			BDJ_list = [(p,0)] # Case 5
 		elif self.red_type == "Split":
 			if 1 < b and b < (p-2):
 				BDJ_list = [(b,0),(p-1-b,b)] # Case 2
